@@ -57,7 +57,7 @@ class DaemonRuntime:
         )
         self.reset = XmosResetService(self._gpio_chip)
         self.xmos = XmosService(
-            XMOS(),
+            XMOS(max_speed_hz=config.xmos.spi_speed_hz),
             self.reset,
             self.events,
             publish_action=config.buttons.action_source == "xmos",

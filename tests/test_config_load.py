@@ -183,6 +183,20 @@ def test_missing_file_uses_defaults(tmp_path: Path):
     )
 
 
+def test_daemon_xmos_spi_speed_defaults_and_can_be_overridden(tmp_path: Path):
+    assert load_daemon_config(tmp_path / "nope.toml").xmos.spi_speed_hz == 8_000_000
+
+    cfg_file = tmp_path / "conf.toml"
+    write_toml(
+        cfg_file,
+        """
+        [xmos]
+        spi_speed_hz = 1000000
+        """,
+    )
+    assert load_daemon_config(cfg_file).xmos.spi_speed_hz == 1_000_000
+
+
 def test_daemon_gpio_chip_defaults_and_can_be_overridden(tmp_path: Path):
     default = load_daemon_config(tmp_path / "nope.toml")
     assert default.gpio.chip == "/dev/gpiochip0"

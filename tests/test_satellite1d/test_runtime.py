@@ -14,6 +14,7 @@ from satellite1d.config import (
     SpeakerDacConfig,
     VolumeButtonsWorkflowConfig,
     VolumeWorkflowConfig,
+    XmosConfig,
 )
 from satellite1d.contracts.events import XmosAvailabilityChanged
 from satellite1d.runtime import DaemonRuntime
@@ -48,6 +49,26 @@ def test_runtime_passes_the_configured_gpio_chip_to_reset_service(tmp_path):
         DaemonRuntime(config, lock_path=tmp_path / "hardware.lock")
 
     reset_service.assert_called_once_with("/dev/gpiochip4")
+
+
+def test_runtime_passes_the_configured_spi_speed_to_xmos(tmp_path):
+    config = DaemonConfig(
+        line_out=LineOutDacConfig(),
+        speaker=SpeakerDacConfig(),
+        gpio=GpioConfig(),
+        buttons=ButtonsConfig(),
+        buttons_evdev=ButtonEvdevConfig(),
+        volume_buttons_workflow=VolumeButtonsWorkflowConfig(),
+        jack_led_workflow=JackLedWorkflowConfig(),
+        mute_led_workflow=MuteLedWorkflowConfig(),
+        led_ring=LedRingConfig(),
+        xmos=XmosConfig(spi_speed_hz=1_000_000),
+    )
+
+    with patch("satellite1d.runtime.XMOS") as xmos:
+        DaemonRuntime(config, lock_path=tmp_path / "hardware.lock")
+
+    xmos.assert_called_once_with(max_speed_hz=1_000_000)
 
 
 def test_runtime_creates_an_enabled_xmos_led_ring(tmp_path):

@@ -58,11 +58,11 @@ class XMOS:
 
     CNTRL_STATUS_LENGTH = 4
 
-    def __init__(self) -> None:
+    def __init__(self, max_speed_hz: int = 8_000_000) -> None:
         cntrl_cfg = DeviceCntrlConfig(
             bus=0,
             dev=0,
-            max_speed_hz=8_000_000,
+            max_speed_hz=max_speed_hz,
             mode=3,
             bits_per_word=8,
             status_reg_len=XMOS.CNTRL_STATUS_LENGTH,
