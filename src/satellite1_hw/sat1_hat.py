@@ -38,9 +38,16 @@ class HatButtons:
         return {name: getattr(self, name) for name in HAT_BUTTON_NAMES}
 
 
-def decode_buttons(status: StatusRegister | None) -> HatButtons | None:
-    """Decode a valid XMOS status register into physical button states."""
-    if status is None or status.device_status != 0 or status.gpio_port_b != 0:
+def decode_buttons(
+    status: StatusRegister | None, *, ready_flag: bool = False
+) -> HatButtons | None:
+    """Decode a valid XMOS status register into physical button states.
+
+    `ready_flag`: control protocol 0x11, where status byte 0 is the device's
+    ready flag (1) rather than a zero device status (0x10).
+    """
+    expected = 1 if ready_flag else 0
+    if status is None or status.device_status != expected or status.gpio_port_b != 0:
         return None
     port_a = status.gpio_port_a
     if not 0 <= port_a <= 0x0F:
@@ -100,7 +107,11 @@ class XMOS:
 
     def read_buttons(self) -> HatButtons | None:
         """Return decoded physical button states from XMOS status."""
-        return decode_buttons(self.read_status())
+        if self._cntrl.framing_v11 is None:
+            self.read_firmware()  # learns the framing; the status layout depends on it
+        return decode_buttons(
+            self.read_status(), ready_flag=bool(self._cntrl.framing_v11)
+        )
 
     def render_led_frame(self, payload: bytes) -> bool:
         """Render one 72-byte GRB LED-ring payload through XMOS."""

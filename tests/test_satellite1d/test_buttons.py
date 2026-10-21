@@ -37,3 +37,9 @@ def test_button_config_sources():
 def test_evdev_sink_rejects_invalid_key():
     with pytest.raises(ValueError, match="not a valid Linux key"):
         EvdevButtonSink.validate_keymap({"action": "KEY_NOT_REAL"}, {"KEY_MUTE": 113})
+
+
+def test_ready_flag_status_decodes_under_control_protocol_0x11():
+    buttons = decode_buttons(_status(0x07, device_status=1), ready_flag=True)
+    assert buttons is not None and not any(buttons.as_dict().values())
+    assert decode_buttons(_status(0x07, device_status=0), ready_flag=True) is None

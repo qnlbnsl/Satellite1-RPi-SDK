@@ -133,9 +133,11 @@ def test_read_command_second_phase_returns_payload():
     dev.open()
     # Phase 1 accepted
     dev._spi.queue([0x02, 0x00, 0x00])
-    # Phase 2: payload available, data in rx2[1:1+len]
+    # Phase 2 (control protocol 0x11): marker, then the servicer's status byte
+    # (Satellite1-XMOS src/control/servicer.c::read_cmd reserves payload[0]),
+    # then the data.
     payload = b"\xDE\xAD\xBE\xEF\x01"
-    rx2 = [mod.CntrlProto.RET_PAYLOAD_AVAILABLE] + list(payload) + [0, 0]
+    rx2 = [mod.CntrlProto.RET_PAYLOAD_AVAILABLE, 0x00] + list(payload) + [0]
     dev._spi.queue(rx2)
     ok, data = dev.transfer(0xF0, 0x58 | mod.CntrlProto.CMD_READ_BIT, None, read_payload_len=len(payload))
     assert ok and data == payload
@@ -157,3 +159,58 @@ def test_status_dataclass_from_bytes():
     mod, _ = load_module_with_stubbed_spidev()
     sr = mod.DeviceCntrlStatusRegister.from_bytes(b"\x01\x02\x03\x04")
     assert (sr.device_status, sr.gpio_port_a, sr.gpio_port_b) == (1, 2, 3)
+
+
+def _recording(dev):
+    sent = []
+    original = dev._spi.xfer2
+
+    def xfer2(tx):
+        sent.append(list(tx))
+        return original(tx)
+
+    dev._spi.xfer2 = xfer2
+    return sent
+
+
+def test_v11_read_strips_payload_marker_and_status():
+    mod, _ = load_module_with_stubbed_spidev()
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    sent = _recording(dev)
+    dev._spi.queue(
+        [0x01, 0x00, 0x01, 0x07, 0x00, 0, 0, 0, 0],
+        [mod.CntrlProto.RET_PAYLOAD_AVAILABLE, 0x00, 9, 9, 0, 4, 3],
+    )
+    ok, data = dev.transfer(240, 88 | mod.CntrlProto.CMD_READ_BIT, None, 5)
+    assert ok and data == bytes([9, 9, 0, 4, 3])
+    assert dev.framing_v11 is True
+    assert len(sent[1]) == 5 + 2  # marker + status + payload clocked in full
+    dev.close()
+
+
+def test_v11_read_with_failed_status_is_failure():
+    mod, _ = load_module_with_stubbed_spidev()
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    dev._spi.queue(
+        [0x01, 0x00, 0x01, 0x07, 0x00, 0, 0, 0, 0],
+        [mod.CntrlProto.RET_PAYLOAD_AVAILABLE, 0x05, 0, 0, 0, 0, 0],
+    )
+    ok, data = dev.transfer(240, 88 | mod.CntrlProto.CMD_READ_BIT, None, 5)
+    assert ok is False and data is None
+    dev.close()
+
+
+def test_v10_read_framing_is_unchanged():
+    mod, _ = load_module_with_stubbed_spidev()
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    dev._spi.queue(
+        [0x01, 0x00, 0x00, 0x07, 0x00, 0, 0, 0, 0],
+        [0x00, 1, 0, 3, 0, 0, 0],
+    )
+    ok, data = dev.transfer(240, 88 | mod.CntrlProto.CMD_READ_BIT, None, 5)
+    assert ok and data == bytes([1, 0, 3, 0, 0])
+    assert dev.framing_v11 is None
+    dev.close()
