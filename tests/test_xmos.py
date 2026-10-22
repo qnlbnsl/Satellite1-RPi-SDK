@@ -104,3 +104,24 @@ def test_flashrom_write_uses_auto_verify_or_noverify(tmp_path, monkeypatch):
         ["-w", str(image)],
         ["-w", str(image), "--noverify"],
     ]
+
+
+def test_read_control_sets_the_read_bit_and_checks_the_length():
+    class Cntrl:
+        def __init__(self, reply):
+            self.reply = reply
+            self.calls = []
+
+        def transfer(self, resource_id, command, payload, read_payload_len):
+            self.calls.append((resource_id, command, payload, read_payload_len))
+            return self.reply
+
+    x = XMOS()
+    x._cntrl = Cntrl((True, bytes(range(40))))
+    assert x.read_control(232, 32, 40) == bytes(range(40))
+    assert x._cntrl.calls == [(232, 0x80 | 32, None, 40)]
+
+    x._cntrl = Cntrl((True, bytes(3)))
+    assert x.read_control(232, 32, 40) is None
+    x._cntrl = Cntrl((False, None))
+    assert x.read_control(232, 32, 40) is None

@@ -293,6 +293,7 @@ class UnixSocketAdapter:
             "mics.get_muted",
             "xmos.get_firmware",
             "xmos.get_status",
+            "xmos.control_read",
             "xmos.reset",
             "xmos.flash_firmware",
         ]

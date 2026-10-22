@@ -127,6 +127,9 @@ class XMOSDeviceCntrl:
 
         self._spi = None
         self.dc_status_register_ = bytearray(self.status_reg_len)
+        # Control protocol 0x11 framing seen on a read (payload-available marker);
+        # None until the first read answers.
+        self.framing_v11: bool | None = None
 
     def open(self) -> None:
         """Open and configure the underlying SPI device."""
@@ -193,9 +196,10 @@ class XMOSDeviceCntrl:
 
         Wire format (phase 1):
             [resource_id, command, plen_with_readflag, payload, status padding]
-        If READ bit is set, a second short read is performed:
-            [0, 0, 0, padding] has length ``read_len + 3``. Its payload begins
-            at index 1.
+        If READ bit is set, a second zero-filled transfer clocks the reply:
+            protocol 0x10: payload from byte 1
+            protocol 0x11: [RET_PAYLOAD_AVAILABLE, status, payload...]
+        Both are accepted; `framing_v11` records which one the device speaks.
 
         Returns: (success, response_bytes | None)
         Side effect: updates self.dc_status_register if a status report is observed.
@@ -247,16 +251,24 @@ class XMOSDeviceCntrl:
         if command & CntrlProto.CMD_READ_BIT:
             # If READ command, do second phase to fetch the payload
             for _ in range(10):
-                # send no-op command (0,0,0) for receiving the pending payload
-                write_read_len = max(3, req_payload_len)
+                # send no-op command (0,0,0) for receiving the pending payload;
+                # one extra byte for the 0x11 payload-available marker
+                write_read_len = max(3, req_payload_len + 1)
                 rx2 = self._xfer([0x00] * (write_read_len))
                 # same ignored retry pattern?
                 if rx2[0] == CntrlProto.RET_IGNORED_IN_DEVICE:
                     sleep(0.1)
                     continue
 
+                start = 1
+                if rx2[0] == CntrlProto.RET_PAYLOAD_AVAILABLE:
+                    self.framing_v11 = True
+                    if rx2[1] != 0:
+                        log.debug("transfer: read status 0x%02X", rx2[1])
+                        return (False, None)
+                    start = 2
                 data = (
-                    bytes(rx2[1 : 1 + read_payload_len])
+                    bytes(rx2[start : start + read_payload_len])
                     if read_payload_len > 0
                     else b""
                 )

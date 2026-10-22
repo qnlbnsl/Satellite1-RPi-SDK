@@ -104,6 +104,18 @@ class XmosService:
             raise XmosUnavailableError("failed to read XMOS status")
         return XmosStatus(status.device_status, status.gpio_port_a, status.gpio_port_b)
 
+    async def read_control(
+        self, resource_id: int, command_id: int, length: int
+    ) -> bytes:
+        async with self._lock:
+            self._require_available()
+            data = await asyncio.to_thread(
+                self._driver.read_control, resource_id, command_id, length
+            )
+        if data is None:
+            raise XmosUnavailableError("XMOS control read failed")
+        return data
+
     async def reset_xmos(self) -> bool:
         async with self._lock:
             self._reset_button_filter()

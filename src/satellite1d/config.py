@@ -70,6 +70,15 @@ class GpioConfig(BaseModel):
     chip: str = "/dev/gpiochip0"
 
 
+class XmosConfig(BaseModel):
+    """SPI control link to the XMOS on the Satellite1 HAT."""
+
+    CONF_GROUPS: ClassVar[tuple[str, ...]] = ("xmos",)
+    model_config = ConfigDict(extra="forbid")
+
+    spi_speed_hz: int = Field(8_000_000, ge=100_000, le=8_000_000)
+
+
 class ButtonEvdevConfig(BaseModel):
     """Optional physical-button to Linux-key mappings."""
 
@@ -319,6 +328,7 @@ class DaemonConfig:
     jack_led_workflow: JackLedWorkflowConfig
     mute_led_workflow: MuteLedWorkflowConfig
     led_ring: LedRingConfig
+    xmos: XmosConfig = field(default_factory=XmosConfig)
     volume_workflow: VolumeWorkflowConfig = field(
         default_factory=lambda: VolumeWorkflowConfig(timeout=1.5)
     )
@@ -341,6 +351,7 @@ def load_daemon_config(config_path: Path | None = None) -> DaemonConfig:
         line_out=load_from_toml(LineOutDacConfig, config_path=config_path),
         speaker=load_from_toml(SpeakerDacConfig, config_path=config_path),
         gpio=load_from_toml(GpioConfig, config_path=config_path),
+        xmos=load_from_toml(XmosConfig, config_path=config_path),
         buttons=load_from_toml(ButtonsConfig, config_path=config_path),
         buttons_evdev=load_from_toml(ButtonEvdevConfig, config_path=config_path),
         volume_buttons_workflow=load_from_toml(

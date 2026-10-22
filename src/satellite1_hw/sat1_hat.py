@@ -7,6 +7,7 @@ from .components.xmos_device_cntrl import (
     DFU_SERVICER,
     MAIN_SERVICER,
     SPI_ECHO_SERVICER,
+    CntrlProto,
     DeviceCntrlCMD,
     DeviceCntrlConfig,
     XMOSDeviceCntrl,
@@ -38,9 +39,16 @@ class HatButtons:
         return {name: getattr(self, name) for name in HAT_BUTTON_NAMES}
 
 
-def decode_buttons(status: StatusRegister | None) -> HatButtons | None:
-    """Decode a valid XMOS status register into physical button states."""
-    if status is None or status.device_status != 0 or status.gpio_port_b != 0:
+def decode_buttons(
+    status: StatusRegister | None, *, ready_flag: bool = False
+) -> HatButtons | None:
+    """Decode a valid XMOS status register into physical button states.
+
+    `ready_flag`: control protocol 0x11, where status byte 0 is the device's
+    ready flag (1) rather than a zero device status (0x10).
+    """
+    expected = 1 if ready_flag else 0
+    if status is None or status.device_status != expected or status.gpio_port_b != 0:
         return None
     port_a = status.gpio_port_a
     if not 0 <= port_a <= 0x0F:
@@ -58,11 +66,11 @@ class XMOS:
 
     CNTRL_STATUS_LENGTH = 4
 
-    def __init__(self) -> None:
+    def __init__(self, max_speed_hz: int = 8_000_000) -> None:
         cntrl_cfg = DeviceCntrlConfig(
             bus=0,
             dev=0,
-            max_speed_hz=8_000_000,
+            max_speed_hz=max_speed_hz,
             mode=3,
             bits_per_word=8,
             status_reg_len=XMOS.CNTRL_STATUS_LENGTH,
@@ -98,9 +106,27 @@ class XMOS:
                 return StatusRegister.from_bytes(data)
         return None
 
+    def read_control(
+        self, resource_id: int, command_id: int, length: int
+    ) -> bytes | None:
+        """Read `length` payload bytes from one device-control read command.
+
+        `command_id` is given without the read bit. Returns None on failure.
+        """
+        ok, data = self._cntrl.transfer(
+            resource_id, command_id | CntrlProto.CMD_READ_BIT, None, length
+        )
+        if ok and data is not None and len(data) == length:
+            return data
+        return None
+
     def read_buttons(self) -> HatButtons | None:
         """Return decoded physical button states from XMOS status."""
-        return decode_buttons(self.read_status())
+        if self._cntrl.framing_v11 is None:
+            self.read_firmware()  # learns the framing; the status layout depends on it
+        return decode_buttons(
+            self.read_status(), ready_flag=bool(self._cntrl.framing_v11)
+        )
 
     def render_led_frame(self, payload: bytes) -> bool:
         """Render one 72-byte GRB LED-ring payload through XMOS."""

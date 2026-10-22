@@ -185,3 +185,38 @@ def test_environment_command_serializes_nullable_sensor_readings():
         }
 
     asyncio.run(run())
+
+
+def test_xmos_control_read_returns_hex_and_validates_params():
+    class Xmos:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def read_control(self, resource_id, command_id, length):
+            self.calls.append((resource_id, command_id, length))
+            return bytes(range(length))
+
+    async def run() -> None:
+        xmos = Xmos()
+        commands = DaemonCommands(object(), object(), object(), xmos)
+        result = await commands.dispatch(
+            "xmos.control_read", {"resource_id": 230, "command_id": 32, "length": 4}
+        )
+        assert result == {"data": "00010203"}
+        assert xmos.calls == [(230, 32, 4)]
+
+        for params in (
+            {"resource_id": 0, "command_id": 32, "length": 4},
+            {"resource_id": 256, "command_id": 32, "length": 4},
+            {"resource_id": 230, "command_id": 0x80 | 32, "length": 4},
+            {"resource_id": 230, "command_id": 32, "length": 0},
+            {"resource_id": 230, "command_id": 32, "length": 253},
+            {"resource_id": True, "command_id": 32, "length": 4},
+            {"resource_id": 230, "command_id": "32", "length": 4},
+            {"resource_id": 230, "command_id": 32},
+        ):
+            with pytest.raises(ValueError, match="must be integers"):
+                await commands.dispatch("xmos.control_read", params)
+        assert len(xmos.calls) == 1
+
+    asyncio.run(run())
