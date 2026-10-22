@@ -7,6 +7,7 @@ from .components.xmos_device_cntrl import (
     DFU_SERVICER,
     MAIN_SERVICER,
     SPI_ECHO_SERVICER,
+    CntrlProto,
     DeviceCntrlCMD,
     DeviceCntrlConfig,
     XMOSDeviceCntrl,
@@ -103,6 +104,20 @@ class XMOS:
             if len(data) >= XMOS.CNTRL_STATUS_LENGTH:
                 self._status = data
                 return StatusRegister.from_bytes(data)
+        return None
+
+    def read_control(
+        self, resource_id: int, command_id: int, length: int
+    ) -> bytes | None:
+        """Read `length` payload bytes from one device-control read command.
+
+        `command_id` is given without the read bit. Returns None on failure.
+        """
+        ok, data = self._cntrl.transfer(
+            resource_id, command_id | CntrlProto.CMD_READ_BIT, None, length
+        )
+        if ok and data is not None and len(data) == length:
+            return data
         return None
 
     def read_buttons(self) -> HatButtons | None:

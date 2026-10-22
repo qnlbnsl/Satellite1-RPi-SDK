@@ -127,6 +127,7 @@ def test_client_exposes_the_existing_daemon_capabilities():
                     "mics.get_muted",
                     "xmos.get_firmware",
                     "xmos.get_status",
+                    "xmos.control_read",
                     "xmos.reset",
                     "xmos.flash_firmware",
                 )

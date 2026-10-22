@@ -134,6 +134,24 @@ class DaemonCommands:
                 "gpio_port_a": status.gpio_port_a,
                 "gpio_port_b": status.gpio_port_b,
             }
+        if method == "xmos.control_read":
+            resource_id = params.get("resource_id")
+            command_id = params.get("command_id")
+            length = params.get("length")
+            if not (
+                _is_int(resource_id)
+                and _is_int(command_id)
+                and _is_int(length)
+                and 1 <= resource_id <= 0xFF
+                and 0 <= command_id <= 0x7F
+                and 1 <= length <= 252
+            ):
+                raise ValueError(
+                    "resource_id 1-255, command_id 0-127 and length 1-252 "
+                    "must be integers"
+                )
+            data = await self._xmos.read_control(resource_id, command_id, length)
+            return {"data": data.hex()}
         if method == "xmos.reset":
             return {"ok": await self._xmos.reset_xmos()}
         if method == "xmos.flash_firmware":
@@ -224,3 +242,7 @@ class DaemonCommands:
             if await self._line_out.is_jack_plugged_in()
             else self._speaker
         )
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
