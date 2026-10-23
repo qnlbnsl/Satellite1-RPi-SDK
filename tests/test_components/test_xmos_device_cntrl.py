@@ -234,11 +234,37 @@ def test_clock_status_rejects_frames_that_are_not_status_only():
     dev.open()
     dev._spi.queue(
         [0, 0, 0, 0, 0, 0],
-        [mod.CntrlProto.RET_IGNORED_IN_DEVICE, 0, 0, 0, 0, 0],
         [mod.CntrlProto.RET_PAYLOAD_AVAILABLE, 0, 9, 9, 0, 0],
     )
     assert dev.clock_status() is None
     assert dev.clock_status() is None
-    assert dev.clock_status() is None
     assert bytes(dev.dc_status_register_) == bytes(4)
+    dev.close()
+
+
+def test_clock_status_waits_out_a_busy_device(monkeypatch):
+    # The XMOS answers the first NOP after a write with RET_IGNORED_IN_DEVICE
+    # and the status about 0.7 ms later (measured on a Satellite1, 1 MHz SPI).
+    mod, _ = load_module_with_stubbed_spidev()
+    monkeypatch.setattr(mod, "sleep", lambda _s: None)
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    dev._spi.queue(
+        [mod.CntrlProto.RET_IGNORED_IN_DEVICE, 0, 0, 0, 0, 0],
+        [0x01, 0x00, 0x01, 0x07, 0x00, 0x00],
+    )
+    assert dev.clock_status() == 0x00
+    assert bytes(dev.dc_status_register_) == bytes([0x01, 0x07, 0, 0])
+    dev.close()
+
+
+def test_clock_status_gives_up_on_a_device_that_stays_busy(monkeypatch):
+    mod, _ = load_module_with_stubbed_spidev()
+    monkeypatch.setattr(mod, "sleep", lambda _s: None)
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    sent = _recording(dev)
+    dev._spi.queue(*[[mod.CntrlProto.RET_IGNORED_IN_DEVICE, 0, 0, 0, 0, 0]] * 20)
+    assert dev.clock_status() is None
+    assert len(sent) == 10
     dev.close()

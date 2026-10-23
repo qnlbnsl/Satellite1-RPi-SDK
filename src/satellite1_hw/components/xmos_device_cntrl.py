@@ -283,10 +283,17 @@ class XMOSDeviceCntrl:
         """Clock the staged status-only frame with a NOP and return its status.
 
         Returns the device's `control_ret_t` for the previous command, or None
-        when the clocked frame is not a status-only frame (no answer, ignored,
-        or a pending read payload). Updates the status register on success.
+        when the clocked frame is not a status-only frame (no answer, still
+        ignored after 10 tries 1 ms apart, or a pending read payload). Updates
+        the status register on success.
         """
-        rx = self._xfer([0x00] * (2 + self.status_reg_len))
+        for _ in range(10):
+            rx = self._xfer([0x00] * (2 + self.status_reg_len))
+            if rx[0] != CntrlProto.RET_IGNORED_IN_DEVICE:
+                break
+            sleep(0.001)
+        else:
+            return None
         if (
             rx[0] != CntrlProto.CNTRL_RES_ID
             or rx[1] == CntrlProto.RET_PAYLOAD_AVAILABLE
