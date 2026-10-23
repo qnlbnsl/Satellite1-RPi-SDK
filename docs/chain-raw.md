@@ -7,7 +7,7 @@ defined and versioned by the Pi-side runtime, not by the daemon. The daemon
 interprets nothing in the payload or the reply and reports no hash or version.
 
 The transport underneath is the device-control SPI protocol described in
-`third_party/Satellite1-XMOS/docs/device-control-spi-protocol.md` (protocol
+`docs/device-control-spi-protocol.md` in the Satellite1-XMOS repository (protocol
 `0x10` and `0x11`). This page covers only what the daemon adds on top.
 
 ## Request
