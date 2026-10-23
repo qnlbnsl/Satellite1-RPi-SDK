@@ -214,3 +214,31 @@ def test_v10_read_framing_is_unchanged():
     assert ok and data == bytes([1, 0, 3, 0, 0])
     assert dev.framing_v11 is None
     dev.close()
+
+
+def test_clock_status_returns_the_staged_write_status():
+    mod, _ = load_module_with_stubbed_spidev()
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    sent = _recording(dev)
+    dev._spi.queue([0x01, 0x05, 0x01, 0x0F, 0x00, 0x00])
+    assert dev.clock_status() == 0x05
+    assert sent == [[0] * 6]  # a full NOP header plus the status register
+    assert bytes(dev.dc_status_register_) == bytes([0x01, 0x0F, 0, 0])
+    dev.close()
+
+
+def test_clock_status_rejects_frames_that_are_not_status_only():
+    mod, _ = load_module_with_stubbed_spidev()
+    dev = mod.XMOSDeviceCntrl()
+    dev.open()
+    dev._spi.queue(
+        [0, 0, 0, 0, 0, 0],
+        [mod.CntrlProto.RET_IGNORED_IN_DEVICE, 0, 0, 0, 0, 0],
+        [mod.CntrlProto.RET_PAYLOAD_AVAILABLE, 0, 9, 9, 0, 0],
+    )
+    assert dev.clock_status() is None
+    assert dev.clock_status() is None
+    assert dev.clock_status() is None
+    assert bytes(dev.dc_status_register_) == bytes(4)
+    dev.close()

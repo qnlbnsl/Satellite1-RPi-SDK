@@ -125,3 +125,32 @@ def test_read_control_sets_the_read_bit_and_checks_the_length():
     assert x.read_control(232, 32, 40) is None
     x._cntrl = Cntrl((False, None))
     assert x.read_control(232, 32, 40) is None
+
+
+def test_write_control_returns_the_status_clocked_after_the_write():
+    class Cntrl:
+        def __init__(self, ok, status):
+            self.ok = ok
+            self.status = status
+            self.calls = []
+
+        def transfer(self, resource_id, command, payload, read_payload_len):
+            self.calls.append((resource_id, command, payload, read_payload_len))
+            return (self.ok, None)
+
+        def clock_status(self):
+            self.calls.append("status")
+            return self.status
+
+    x = XMOS()
+    x._cntrl = Cntrl(True, 5)
+    assert x.write_control(233, 4, b"\x01\x02") == 5
+    assert x._cntrl.calls == [(233, 4, b"\x01\x02", 0), "status"]
+
+    x._cntrl = Cntrl(True, None)
+    assert x.write_control(233, 4, b"") is None
+    x._cntrl = Cntrl(False, 0)
+    assert x.write_control(233, 4, b"") is None
+    assert x._cntrl.calls == [(233, 4, b"", 0)]
+    with pytest.raises(ValueError, match="read bit"):
+        x.write_control(233, 0x84, b"")

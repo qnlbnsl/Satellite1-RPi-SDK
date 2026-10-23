@@ -120,6 +120,22 @@ class XMOS:
             return data
         return None
 
+    def write_control(
+        self, resource_id: int, command_id: int, payload: bytes
+    ) -> int | None:
+        """Send one device-control write of `payload` and return its status.
+
+        `command_id` is given without the read bit. Returns the device's
+        `control_ret_t` for the write (0 is success), or None when the transfer
+        failed or no status frame came back.
+        """
+        if command_id & CntrlProto.CMD_READ_BIT:
+            raise ValueError("write command_id must not carry the read bit")
+        ok, _ = self._cntrl.transfer(resource_id, command_id, payload, 0)
+        if not ok:
+            return None
+        return self._cntrl.clock_status()
+
     def read_buttons(self) -> HatButtons | None:
         """Return decoded physical button states from XMOS status."""
         if self._cntrl.framing_v11 is None:

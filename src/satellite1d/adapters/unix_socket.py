@@ -35,6 +35,7 @@ from ..contracts.events import (
     VolumeChanged,
     XmosAvailabilityChanged,
 )
+from ..contracts.xmos import XmosMaintenanceError
 
 DEFAULT_SOCKET_PATH = Path("/run/satellite1/satellite1d.sock")
 log = logging.getLogger(__name__)
@@ -273,6 +274,8 @@ class UnixSocketAdapter:
             )
         except ValueError as exc:
             return failure(request_id, "invalid_params", str(exc))
+        except XmosMaintenanceError as exc:
+            return failure(request_id, "xmos_busy", str(exc))
         except Exception:
             log.exception("hardware operation failed: %s", method)
             return failure(request_id, "hardware_failure", "hardware operation failed")
@@ -296,6 +299,7 @@ class UnixSocketAdapter:
             "xmos.control_read",
             "xmos.reset",
             "xmos.flash_firmware",
+            "chain.raw",
         ]
         if getattr(self.commands, "led_ring_enabled", False):
             capabilities.extend(

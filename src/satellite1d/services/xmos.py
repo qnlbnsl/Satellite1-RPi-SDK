@@ -3,6 +3,8 @@
 import asyncio
 import logging
 import sys
+from collections.abc import AsyncIterator, Awaitable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, cast
 
@@ -16,6 +18,7 @@ from satellite1d.contracts.events import (
 )
 from satellite1d.contracts.leds import LedFrame, LedRingUnavailableError
 from satellite1d.contracts.xmos import (
+    XmosMaintenanceError,
     XmosResetControl,
     XmosStatus,
     XmosUnavailableError,
@@ -43,6 +46,7 @@ class XmosService:
         self._events = events
         self._publish_action = publish_action
         self._lock = asyncio.Lock()
+        self._maintenance: list[str] = []
         self._available = False
         self._button_task: asyncio.Task[None] | None = None
         self._button_previous: dict[str, bool] | None = None
@@ -117,6 +121,16 @@ class XmosService:
         return data
 
     async def reset_xmos(self) -> bool:
+        return await self._during_maintenance(
+            "XMOS reset in progress", self._do_reset()
+        )
+
+    async def flash_xmos_firmware(self, path: Path, verify: bool = False) -> bool:
+        return await self._during_maintenance(
+            "XMOS firmware flash in progress", self._do_flash(path, verify)
+        )
+
+    async def _do_reset(self) -> bool:
         async with self._lock:
             self._reset_button_filter()
             self._mark_unavailable_locked()
@@ -126,7 +140,7 @@ class XmosService:
             await self._reconnect_locked()
         return True
 
-    async def flash_xmos_firmware(self, path: Path, verify: bool = False) -> bool:
+    async def _do_flash(self, path: Path, verify: bool) -> bool:
         async with self._lock:
             self._reset_button_filter()
             self._mark_unavailable_locked()
@@ -161,6 +175,41 @@ class XmosService:
                     else:
                         raise cleanup_errors[0]
 
+    # Chain control passthrough. Refuses rather than queues behind maintenance.
+
+    async def forward_control_write(
+        self, resource_id: int, command_id: int, payload: bytes
+    ) -> int:
+        """Write `payload` unchanged to one control command; return its status.
+
+        Returns the device's `control_ret_t` (0 is success). Raises
+        XmosMaintenanceError naming the operation that holds the bus, or
+        XmosUnavailableError when the transfer fails.
+        """
+        async with self._bus_unless_busy():
+            status = await asyncio.to_thread(
+                self._driver.write_control, resource_id, command_id, payload
+            )
+        if status is None:
+            raise XmosUnavailableError("XMOS control write failed")
+        return int(status)
+
+    async def forward_control_read(
+        self, resource_id: int, command_id: int, length: int
+    ) -> bytes:
+        """Read `length` payload bytes unchanged from one control command.
+
+        Raises XmosMaintenanceError naming the operation that holds the bus, or
+        XmosUnavailableError when the read fails.
+        """
+        async with self._bus_unless_busy():
+            data = await asyncio.to_thread(
+                self._driver.read_control, resource_id, command_id, length
+            )
+        if data is None:
+            raise XmosUnavailableError("XMOS control read failed")
+        return bytes(data)
+
     # MicrophoneController
 
     async def get_microphone_mute(self) -> bool:
@@ -181,6 +230,25 @@ class XmosService:
             )
         if not rendered:
             raise LedRingUnavailableError("XMOS rejected the LED frame")
+
+    # Private maintenance tracking
+
+    async def _during_maintenance(self, reason: str, work: Awaitable[bool]) -> bool:
+        """Run `work` with `reason` marked as holding the bus, lock wait included."""
+        self._maintenance.append(reason)
+        try:
+            return await work
+        finally:
+            self._maintenance.remove(reason)
+
+    @asynccontextmanager
+    async def _bus_unless_busy(self) -> AsyncIterator[None]:
+        """Hold the lock for one passthrough; refuse while maintenance holds it."""
+        if self._maintenance:
+            raise XmosMaintenanceError(f"XMOS busy: {self._maintenance[0]}")
+        async with self._lock:
+            self._require_available()
+            yield
 
     # Private communication and lifecycle helpers. The caller holds _lock.
 

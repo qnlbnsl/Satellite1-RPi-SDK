@@ -1,8 +1,9 @@
 """Application commands composed from daemon service capabilities."""
 
 import math
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .contracts.audio import AudioChangeSource, VolumeController
 from .contracts.events import (
@@ -19,6 +20,10 @@ from .services.environment import EnvironmentService
 from .services.led_ring import LedRingService
 from .services.power import PowerDeliveryService
 from .services.xmos import XmosService
+
+_HEX_BYTES = re.compile(r"(?:[0-9a-fA-F]{2})*")
+MAX_CONTROL_WRITE_PAYLOAD = 253
+MAX_CONTROL_READ_PAYLOAD = 252
 
 
 class DaemonCommands:
@@ -152,6 +157,8 @@ class DaemonCommands:
                 )
             data = await self._xmos.read_control(resource_id, command_id, length)
             return {"data": data.hex()}
+        if method == "chain.raw":
+            return await self._chain_raw(params)
         if method == "xmos.reset":
             return {"ok": await self._xmos.reset_xmos()}
         if method == "xmos.flash_firmware":
@@ -188,6 +195,43 @@ class DaemonCommands:
         if method.startswith("dac."):
             return await self._dac_command(method, params, audio_source)
         raise KeyError(method)
+
+    async def _chain_raw(self, params: dict[str, Any]) -> dict[str, Any]:
+        resource_id = params.get("resource_id")
+        command_id = params.get("command_id")
+        if not (
+            _is_int(resource_id)
+            and _is_int(command_id)
+            and 1 <= resource_id <= 0xFF
+            and 0 <= command_id <= 0x7F
+        ):
+            raise ValueError("resource_id 1-255 and command_id 0-127 must be integers")
+        if ("payload" in params) == ("read_length" in params):
+            raise ValueError(
+                "give exactly one of payload (write) or read_length (read)"
+            )
+        if "payload" in params:
+            payload = params["payload"]
+            if (
+                not isinstance(payload, str)
+                or not _HEX_BYTES.fullmatch(payload)
+                or len(payload) > 2 * MAX_CONTROL_WRITE_PAYLOAD
+            ):
+                raise ValueError(
+                    "payload must be a hex string of 0-"
+                    f"{MAX_CONTROL_WRITE_PAYLOAD} bytes"
+                )
+            status = await self._xmos.forward_control_write(
+                resource_id, command_id, bytes.fromhex(payload)
+            )
+            return {"status": status}
+        length = params["read_length"]
+        if not (_is_int(length) and 1 <= length <= MAX_CONTROL_READ_PAYLOAD):
+            raise ValueError(
+                f"read_length must be an integer from 1 to {MAX_CONTROL_READ_PAYLOAD}"
+            )
+        data = await self._xmos.forward_control_read(resource_id, command_id, length)
+        return {"data": data.hex()}
 
     async def _dac_command(
         self,
@@ -244,5 +288,5 @@ class DaemonCommands:
         )
 
 
-def _is_int(value: object) -> bool:
+def _is_int(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)

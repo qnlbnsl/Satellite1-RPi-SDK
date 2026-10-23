@@ -279,6 +279,23 @@ class XMOSDeviceCntrl:
         # WRITE completed
         return (True, None)
 
+    def clock_status(self) -> int | None:
+        """Clock the staged status-only frame with a NOP and return its status.
+
+        Returns the device's `control_ret_t` for the previous command, or None
+        when the clocked frame is not a status-only frame (no answer, ignored,
+        or a pending read payload). Updates the status register on success.
+        """
+        rx = self._xfer([0x00] * (2 + self.status_reg_len))
+        if (
+            rx[0] != CntrlProto.CNTRL_RES_ID
+            or rx[1] == CntrlProto.RET_PAYLOAD_AVAILABLE
+        ):
+            return None
+        n = min(self.status_reg_len, len(rx) - 2)
+        self.dc_status_register_[:n] = bytes(rx[2 : 2 + n])
+        return rx[1]
+
     def _xfer(self, tx: Sequence[int]) -> list[int]:
         if self._spi is None:
             raise RuntimeError("SPI not open")

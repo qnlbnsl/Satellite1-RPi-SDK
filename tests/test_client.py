@@ -130,6 +130,7 @@ def test_client_exposes_the_existing_daemon_capabilities():
                     "xmos.control_read",
                     "xmos.reset",
                     "xmos.flash_firmware",
+                    "chain.raw",
                 )
                 assert (await satellite.health()).dac is True
                 assert (await satellite.power.get_contract()).voltage == 9.0
