@@ -25,6 +25,7 @@ from ..contracts.events import (
     ButtonPressed,
     DaemonEvent,
     EventSubscriber,
+    LedBackgroundFrameChanged,
     LineOutJackChanged,
     LvaConnectionChanged,
     LvaMicSoftwareMuteChanged,
@@ -191,11 +192,11 @@ class UnixSocketAdapter:
                 json.dumps(success(request_id, {"subscribed": True})).encode() + b"\n"
             )
             for initial_event in initial:
+                initial_payload = _event_payload(initial_event)
+                if initial_payload is None:
+                    continue
                 writer.write(
-                    json.dumps(
-                        _event_payload(initial_event), separators=(",", ":")
-                    ).encode()
-                    + b"\n"
+                    json.dumps(initial_payload, separators=(",", ":")).encode() + b"\n"
                 )
             await writer.drain()
             while True:
@@ -216,9 +217,11 @@ class UnixSocketAdapter:
                 event: DaemonEvent | None = event_task.result()
                 if event is None:
                     return
+                payload = _event_payload(event)
+                if payload is None:
+                    continue
                 writer.write(
-                    json.dumps(_event_payload(event), separators=(",", ":")).encode()
-                    + b"\n"
+                    json.dumps(payload, separators=(",", ":")).encode() + b"\n"
                 )
                 await writer.drain()
         finally:
@@ -315,7 +318,10 @@ class UnixSocketAdapter:
         return capabilities
 
 
-def _event_payload(event: DaemonEvent) -> dict[str, Any]:
+def _event_payload(event: DaemonEvent) -> dict[str, Any] | None:
+    """The socket form of `event`, or None for an event the socket does not stream."""
+    if isinstance(event, LedBackgroundFrameChanged):
+        return None
     if isinstance(event, ButtonPressed):
         return {"event": "buttons.pressed", "data": {"name": event.name}}
     if isinstance(event, MicMuteChanged):

@@ -4,7 +4,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from satellite1d.adapters.unix_socket import UnixSocketAdapter
-from satellite1d.contracts.events import ButtonPressed, XmosAvailabilityChanged
+from satellite1d.contracts.events import (
+    ButtonPressed,
+    LedBackgroundFrameChanged,
+    XmosAvailabilityChanged,
+)
 from satellite1d.events import EventHub
 
 
@@ -191,6 +195,49 @@ def test_server_streams_xmos_availability_events_without_disconnect():
                 "event": "buttons.pressed",
                 "data": {"name": "action"},
             }
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await server.close()
+
+    asyncio.run(run())
+
+
+def test_server_keeps_event_streams_open_across_led_frame_changes():
+    class Commands:
+        async def current_events(self):
+            return []
+
+    async def run() -> None:
+        socket_path = _socket_path()
+        events = EventHub()
+        server = UnixSocketAdapter(Commands(), socket_path, events)
+        await server.start()
+        reader, writer = await asyncio.open_unix_connection(socket_path)
+        try:
+            writer.write(
+                json.dumps(
+                    {
+                        "id": 1,
+                        "method": "events.subscribe",
+                        "params": {"include_current": False},
+                    }
+                ).encode()
+                + b"\n"
+            )
+            await writer.drain()
+            assert json.loads(await reader.readline()) == {
+                "id": 1,
+                "result": {"subscribed": True},
+            }
+
+            events.publish(LedBackgroundFrameChanged())
+            events.publish(ButtonPressed("action"))
+            assert json.loads(await reader.readline()) == {
+                "event": "buttons.pressed",
+                "data": {"name": "action"},
+            }
+            assert events.has_subscribers
         finally:
             writer.close()
             await writer.wait_closed()
